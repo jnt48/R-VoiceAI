@@ -13,17 +13,12 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 app = FastAPI()
 
-# Add CORS middleware to allow requests from React (localhost:3001)
-origins = [
-    "http://localhost:3000",  # FastAPI server running on port 3001
-    # You can add other URLs if needed
-]
-
+# Add CORS middleware to allow requests from any origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Allow these origins
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+    allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
 )
 
@@ -66,8 +61,6 @@ Ensure the score is precise and can be a decimal value (e.g., 7.5/10, 6.2/10). O
 
 No other text should be included.
 """
-
-
 
 @app.post("/evaluate/")
 async def evaluate_code(request: CodeEvaluationRequest):
