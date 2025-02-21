@@ -1,76 +1,137 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 import google.generativeai as genai
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # Load environment variables
 load_dotenv()
 
-# Configure Gemini API
+# Configure Google Generative AI
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-app = FastAPI()
+# Initialize FastAPI app
+app = FastAPI(title="Edith - AI Coding Mentor", version="1.0")
 
-# Add CORS middleware to allow requests from any origin
+# Allow requests from any origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origins=["*"],  # Allow all origins; for production, consider specifying allowed origins
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Function to get the Gemini response
-def get_gemini_response(teacher_code, student_code, prompt):
+# Request models
+class ApproachRequest(BaseModel):
+    problem_statement: str
+    code_input: str
+
+class DoubtRequest(BaseModel):
+    doubt_question: str
+    problem_context: str
+
+class GeneralCodingQuestion(BaseModel):
+    question: str
+
+class ScoreRequest(BaseModel):
+    question: str
+    answer: str
+
+def get_gemini_response(prompt, code_snippet=None, user_question=None):
+    """
+    Sends a prompt along with optional code/question context to Gemini API.
+    Returns the generated response text.
+    """
+    input_data = []
+    if user_question:
+        input_data.append("Problem/Question: " + user_question)
+    if code_snippet:
+        input_data.append("User Code: " + code_snippet)
+    input_data.append("Prompt: " + prompt)
+    
     model = genai.GenerativeModel('gemini-1.5-flash')
-    response = model.generate_content([teacher_code, student_code, prompt])
+    response = model.generate_content(input_data)
     return response.text
 
-# Define the input data model using Pydantic
-class CodeEvaluationRequest(BaseModel):
-    teacher_code: str
-    student_code: str
-
-# Prompt for the model
-input_prompt = """
-You are an experienced programming instructor tasked with evaluating a student's code submission against the correct solution.
-The first input is the teacher's code, and the second input is the student's code. Your task is to:
-
-1. Thoroughly analyze both the teacher's code and the student's code for correctness.
-2. Identify and highlight any differences between the two codes, focusing on:
-   - Syntax errors
-   - Logical errors
-   - Structural mismatches (e.g., missing functions, incorrect variable names)
-   - Inefficiencies or unnecessary complexities in the student's code
-3. Assign a percentage score for how similar the student's code is to the teacher's code based on:
-   - Structural similarity
-   - Logical correctness
-   - Syntax accuracy
-4. Provide a final score out of 10, considering:
-   - The overall correctness of the student's code
-   - The quality of the code (e.g., readability, proper use of functions, error handling)
-   - The degree of deviation from the correct solution
-
-Be strict in your evaluation. If the student's code has any issues, such as errors, missing parts, or major deviations from the teacher's code, the score should reflect that with a lower percentage and score out of 10.
-
-Ensure the score is precise and can be a decimal value (e.g., 7.5/10, 6.2/10). Output only the score and percentage match in this format:
-- Percentage match: 75.5%
-- Score: 6.8/10
-
-No other text should be included.
-"""
-
-@app.post("/evaluate/")
-async def evaluate_code(request: CodeEvaluationRequest):
-    teacher_code = request.teacher_code
-    student_code = request.student_code
-
-    if not teacher_code.strip() or not student_code.strip():
-        raise HTTPException(status_code=400, detail="Please provide both the teacher's and the student's code.")
-
-    # Get the response from Gemini API
-    response = get_gemini_response(teacher_code, student_code, input_prompt)
+@app.post("/analyze")
+async def analyze_code(request: ApproachRequest):
+    """
+    API endpoint for the Approach Builder.
+    - Returns: Next steps, errors (with line numbers), and correct approach.
+    """
+    prompt_approach = (
+        "You are an expert coding mentor named Edith. The user has provided a coding problem and a code snippet. "
+        "Analyze the code and provide a **concise and professional** response covering three key areas:\n\n"
+        "1️⃣ **How the user can proceed next** based on the current implementation.\n"
+        "2️⃣ **Identify errors (if any)**, mentioning **specific line numbers** and explaining incorrect logic.\n"
+        "3️⃣ **Give the correct approach** (without providing direct code), focusing on best practices and improvements."
+    )
     
-    return {"result": response}
+    response = get_gemini_response(
+        prompt=prompt_approach,
+        code_snippet=request.code_input,
+        user_question=request.problem_statement
+    )
+    
+    return {"response": response}
+
+@app.post("/solve_doubt")
+async def solve_doubt(request: DoubtRequest):
+    """
+    API endpoint for the General Doubt Solver.
+    - Returns: Explanation and conceptual understanding.
+    """
+    prompt_doubt = (
+        "You are a knowledgeable technical mentor named Edith. "
+        "Answer the user's question and clarify any doubts regarding the problem statement. "
+        "Provide a **precise yet detailed explanation**, ensuring conceptual clarity."
+    )
+    
+    combined_question = request.doubt_question + "\nContext: " + request.problem_context
+    response = get_gemini_response(
+        prompt=prompt_doubt,
+        user_question=combined_question
+    )
+    
+    return {"response": response}
+
+@app.post("/edit")
+async def edit_code_thinking(request: GeneralCodingQuestion):
+    """
+    API endpoint for general coding-related questions.
+    - Returns: Guidance on **how to think** about coding problems.
+    """
+    prompt_edit = (
+        """You are Edith, an AI coding mentor who helps users **think** about problems instead of just providing answers. 
+        For the given coding question, explain **how the user should approach it**, including:
+        1️⃣ **Breaking down the problem logically**  
+        2️⃣ **Identifying key concepts involved**  
+        3️⃣ **Steps to derive a solution independently**  
+        Encourage problem-solving without giving direct solutions."""
+    )
+    
+    response = get_gemini_response(
+        prompt=prompt_edit,
+        user_question=request.question
+    )
+    
+    return {"response": response}
+
+@app.post("/givescore")
+async def give_score(request: ScoreRequest):
+    """
+    API endpoint to evaluate a user's answer to a question.
+    It returns a numeric score on a scale of 0 to 10.
+    """
+    prompt_score = (
+        "You are an expert evaluator. Evaluate the following answer to the given question on a scale of 0 to 10, "
+        "where 0 means completely incorrect and 10 means completely correct.\n\n"
+        f"Question: {request.question}\n"
+        f"Answer: {request.answer}\n\n"
+        "Please respond only with the numeric score."
+    )
+    
+    score_response = get_gemini_response(prompt_score)
+    return {"score": score_response}
