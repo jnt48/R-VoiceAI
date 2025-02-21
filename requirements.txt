@@ -1,5 +1,4 @@
-fastapi
-pydantic
-python-dotenv
+streamlit
 google-generativeai
-uvicorn
+python-dotenv
+pdf2image
