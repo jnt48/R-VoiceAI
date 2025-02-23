@@ -1,7 +1,4 @@
-streamlit
 google-generativeai
 python-dotenv
-pdf2image
-uvicorn
 fastapi
-pydantic
+uvicorn[standard]
