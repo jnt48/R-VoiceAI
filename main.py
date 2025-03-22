@@ -1,30 +1,33 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
+from mangum import Mangum
 
-# Load environment variables
+# Load environment variables from .env file
 load_dotenv()
 
-# Configure Gemini API with your key
-gemini_api_key = os.getenv("GEMINI_API_KEY")
+# Retrieve the Google API Key from environment variables
+gemini_api_key = os.getenv("GOOGLE_API_KEY")
 if not gemini_api_key:
-    raise Exception("Gemini API key not set. Please set GEMINI_API_KEY in your environment variables.")
+    raise Exception("GOOGLE_API_KEY is not set in your environment variables.")
+
+# Configure Gemini AI with the API key
 genai.configure(api_key=gemini_api_key)
 
 # Initialize FastAPI app
-app = FastAPI(title="EDIT Chatbot API")
+app = FastAPI(title="EDIT Chatbot API", version="1.0.0")
 
 # Enable CORS to allow frontend to interact with backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (change to specific domain in production)
+    allow_origins=["*"],  # Restrict this in production as needed
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Data models for the conversation
@@ -89,3 +92,5 @@ def chat_endpoint(chat_request: ChatRequest):
     # Return the bot's response and updated history
     return ChatResponse(bot_message=bot_message, history=history)
 
+# Wrap the FastAPI app with Mangum for serverless deployment
+handler = Mangum(app)
