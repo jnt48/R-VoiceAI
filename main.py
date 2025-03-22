@@ -1,107 +1,91 @@
-from dotenv import load_dotenv
-import os
-import google.generativeai as genai
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List, Optional
+import os
+import google.generativeai as genai
+from dotenv import load_dotenv
 
-# Load environment variables (ensure your .env contains GOOGLE_API_KEY)
+# Load environment variables
 load_dotenv()
 
-# Configure Google Generative AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# Configure Gemini API with your key
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if not gemini_api_key:
+    raise Exception("Gemini API key not set. Please set GEMINI_API_KEY in your environment variables.")
+genai.configure(api_key=gemini_api_key)
 
 # Initialize FastAPI app
-app = FastAPI(
-    title="PoliSmart Dynamic Policy Recommender",
-    version="2.2",
-    description="An AI-powered service to generate highly professional and personalized insurance policy recommendations based on multi-modal customer data."
-)
+app = FastAPI(title="EDIT Chatbot API")
 
-# Allow requests from any origin (for development; restrict in production)
+# Enable CORS to allow frontend to interact with backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allow all origins (change to specific domain in production)
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
 )
 
-# Updated Request model with additional fields for a realistic recommendation
-class PolicyRecommendationRequest(BaseModel):
-    customer_id: str
-    insurance_type: str         # e.g., "life", "health", "auto", "home"
-    customer_age: int
-    employment_status: str        # e.g., "employed", "self-employed", "unemployed", "retired"
-    marital_status: str           # e.g., "single", "married", "divorced", "widowed"
-    dependents: int
-    health_status: str            # e.g., "excellent", "good", "average", "poor"
-    existing_coverage: str        # Details about any existing insurance coverage
-    text_data: str                # Customer lifestyle, preferences, and long-term financial goals
-    numerical_data: dict          # e.g., {"income": 50000, "existingPremium": 1200}
-    additional_financial_goals: str
-    behavioral_data: dict         # e.g., {"recentInteractions": "Browsed policy details, visited FAQ"}
+# Data models for the conversation
+class ChatMessage(BaseModel):
+    role: str  # "user" or "bot"
+    message: str
 
-# Response model
-class PolicyRecommendationResponse(BaseModel):
-    recommendation: str
+class ChatRequest(BaseModel):
+    user_message: str
+    history: Optional[List[ChatMessage]] = []
 
-def get_policy_recommendation(prompt: str) -> str:
-    """
-    Sends the prompt to the Gemini generative model and returns the generated recommendation.
-    """
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    response = model.generate_content(prompt)
-    return response.text
+class ChatResponse(BaseModel):
+    bot_message: str
+    history: List[ChatMessage]
 
-@app.post("/recommend_policy", response_model=PolicyRecommendationResponse)
-async def recommend_policy(request: PolicyRecommendationRequest):
-    """
-    Generates a professional, narrative-style, and personalized insurance policy recommendation.
-    Output is returned in Markdown format with a real link replacing the placeholder.
-    """
-    # Build a detailed prompt including extended customer data from the enhanced form.
-    prompt = (
-        "Please provide a highly professional and detailed personalized insurance policy recommendation based on the customer information provided below. "
-        "Format your response in Markdown with clear headings, subheadings, and bullet points (avoid using numeric lists like '1.', '2.', etc.).\n\n"
-        "**Customer Information**\n"
-        f"- Customer ID: {request.customer_id}\n"
-        f"- Insurance Type: {request.insurance_type}\n"
-        f"- Customer Age: {request.customer_age}\n\n"
-        "**Extended Customer Profile**\n"
-        f"- Employment Status: {request.employment_status}\n"
-        f"- Marital Status: {request.marital_status}\n"
-        f"- Number of Dependents: {request.dependents}\n"
-        f"- Health Status: {request.health_status}\n"
-        f"- Existing Coverage: {request.existing_coverage}\n"
-        f"- Additional Financial Goals: {request.additional_financial_goals}\n\n"
-        "**Customer Profile**\n"
-        f"- Lifestyle & Goals: {request.text_data}\n"
-        f"- Financial Data: {request.numerical_data}\n"
-        f"- Behavioral Data: {request.behavioral_data}\n\n"
-        "Ensure the policy name is a real product available from our portfolio, such as 'SecureFuture Family Protector' or another verified policy name."
-        "Based on the above information, produce a detailed narrative that includes a suggested policy name, recommended coverage amount, "
-        "premium payment schedule, policy duration, and any additional recommendations. Also, include a link to a detailed policy document page. "
-        "The final output should be easy to read, professional, and well-structured without enumerated numbering."
+# Chatbot class that uses Gemini AI
+class Chatbot:
+    def __init__(self):
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    def get_response(self, prompt: str) -> str:
+        try:
+            response = self.model.generate_content([prompt])
+            return response.text.strip()
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+# Create an instance of the chatbot
+chatbot = Chatbot()
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_endpoint(chat_request: ChatRequest):
+    # Get the conversation history or initialize empty
+    history = chat_request.history or []
+    
+    # Append the new user message to the history
+    history.append(ChatMessage(role="user", message=chat_request.user_message))
+    
+    # Limit history to the last 100 messages
+    if len(history) > 100:
+        history = history[-100:]
+    
+    # Build a conversation prompt with a system instruction
+    conversation_prompt = (
+        "System: You are EDIT, an educational, professional, interactive, and caring chatbot. "
+        "Your responses should be clear, detailed, and supportive. You provide thoughtful, context-aware answers "
+        "and help address any worries the user may have. Always maintain a professional tone while being empathetic.\n"
     )
+    for chat in history:
+        if chat.role == "user":
+            conversation_prompt += "User: " + chat.message + "\n"
+        else:
+            conversation_prompt += "EDIT: " + chat.message + "\n"
+    conversation_prompt += "EDIT: "  # Prompt the next answer
     
-    try:
-        recommendation = get_policy_recommendation(prompt)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Get the bot's response from Gemini AI
+    bot_message = chatbot.get_response(conversation_prompt)
     
-    # Post-process to replace any placeholder with a real URL.
-    placeholder = "[Placeholder for Policy Details Page Link]"
-    real_link = "https://www.exampleinsurance.com/policies/securefuture-family-protector"
+    # Append the bot response to the conversation history
+    history.append(ChatMessage(role="bot", message=bot_message))
     
-    if placeholder in recommendation:
-        recommendation = recommendation.replace(placeholder, real_link)
-    else:
-        recommendation += f"\n\nFor more details, please visit: [Policy Details]({real_link})"
-    
-    return PolicyRecommendationResponse(recommendation=recommendation)
+    # Return the bot's response and updated history
+    return ChatResponse(bot_message=bot_message, history=history)
 
-# To run the server, use: uvicorn main:app --reload
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
