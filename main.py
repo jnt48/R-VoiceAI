@@ -7,6 +7,8 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from mangum import Mangum
 
+
+
 # Load environment variables from .env file
 load_dotenv()
 
