@@ -94,3 +94,4 @@ def chat_endpoint(chat_request: ChatRequest):
 
 # Wrap the FastAPI app with Mangum for serverless deployment
 handler = Mangum(app)
+
